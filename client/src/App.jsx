@@ -3,21 +3,29 @@ import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import './App.css';
 
-// --- רכיב הלוגו החדש (תמונה) ---
+// --- הגדרת כתובת השרת (חשוב!) ---
+// זה מחליף את localhost בכתובת האמיתית של השרת שלך
+const API_URL = "https://my-recipe-server-wt3u.onrender.com"; 
+
 const FutureLogo = ({ className }) => (
   <img 
     src="/logo.png" 
     alt="לוגו" 
     className={className}
     style={{ 
-      objectFit: 'contain', // שומר על הפרופורציות של הלוגו
+      objectFit: 'contain', 
       filter: 'drop-shadow(0 0 8px rgba(0,0,0,0.2))'
     }}
   />
 );
 
 function App() {
-  const [user, setUser] = useState(null);
+  // --- תיקון: טעינת משתמש מהזיכרון ---
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  
   const [token, setToken] = useState(localStorage.getItem('token'));
   
   const [folders, setFolders] = useState([]);
@@ -25,6 +33,7 @@ function App() {
   
   const [view, setView] = useState('gallery'); 
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(''); // להצגת שגיאות על המסך
   
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
@@ -36,7 +45,6 @@ function App() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // --- Theme State ---
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
   useEffect(() => {
@@ -50,6 +58,8 @@ function App() {
 
   useEffect(() => {
     if (token) {
+      // הגדרת הכתובת הבסיסית לכל הבקשות
+      axios.defaults.baseURL = API_URL;
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchFolders();
       fetchRecipes(null);
@@ -69,33 +79,52 @@ function App() {
   // --- API Functions ---
   const fetchFolders = async () => {
     try {
-      const res = await axios.get('https://my-recipe-server-wt3u.onrender.com/api/folders');
+      const res = await axios.get('/api/folders'); // שימוש בנתיב יחסי
       setFolders(res.data);
-    } catch (e) { console.error(e); logout(); }
+    } catch (e) { 
+      console.error(e); 
+      if (e.response?.status === 401) logout(); 
+    }
   };
+
   const fetchRecipes = async (folderId) => {
     setLoading(true);
+    setErrorMsg('');
     try {
-      const res = await axios.get(`https://my-recipe-server-wt3u.onrender.com/api/recipes`, { params: { folderId: folderId } });
+      const res = await axios.get(`/api/recipes`, { params: { folderId: folderId } });
       setRecipes(res.data);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) { 
+      console.error(e);
+      setErrorMsg('לא הצלחנו לטעון מתכונים. בדוק חיבור אינטרנט.');
+    } finally { setLoading(false); }
   };
+
   const handleGoogleSuccess = async (response) => {
     try {
-      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/auth/google', { token: response.credential });
+      // שימוש בכתובת המלאה להתחברות
+      const res = await axios.post(`${API_URL}/api/auth/google`, { token: response.credential });
       const { token, user } = res.data;
-      setToken(token); setUser(user); localStorage.setItem('token', token);
+      
+      setToken(token); 
+      setUser(user); 
+      
+      // שמירה בזיכרון
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user)); // שומרים את פרטי המשתמש
+      
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchFolders();
     } catch (e) { alert('התחברות נכשלה'); }
   };
+
   const createFolder = async () => {
     if (!newFolderName) return;
     try {
-      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/folders', { name: newFolderName });
+      const res = await axios.post('/api/folders', { name: newFolderName });
       setFolders([...folders, res.data]); setNewFolderName('');
     } catch (e) { alert('שגיאה ביצירת תיקייה'); }
   };
+
   const handleUpload = async () => {
     if (!file) return;
     setLoading(true);
@@ -103,10 +132,11 @@ function App() {
     formData.append('image', file);
     formData.append('folderId', selectedFolder ? selectedFolder._id : 'null');
     try {
-      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/recipes/upload', formData);
+      const res = await axios.post('/api/recipes/upload', formData);
       setRecipes([res.data, ...recipes]); setSelectedRecipe(res.data); setView('details'); setFile(null); setShowOriginal(false);
     } catch (e) { alert('שגיאה בפיענוח'); } finally { setLoading(false); }
   };
+
   const handleDishImageUpload = async (e) => {
     const dishFile = e.target.files[0];
     if (!dishFile || !selectedRecipe) return;
@@ -114,18 +144,17 @@ function App() {
     const formData = new FormData();
     formData.append('image', dishFile);
     try {
-      const res = await axios.post(`https://my-recipe-server-wt3u.onrender.com/api/recipes/${selectedRecipe._id}/dish-image`, formData);
+      const res = await axios.post(`/api/recipes/${selectedRecipe._id}/dish-image`, formData);
       setSelectedRecipe(res.data); setRecipes(recipes.map(r => r._id === res.data._id ? res.data : r));
     } catch (e) { alert('שגיאה בהעלאת תמונה'); } finally { setLoading(false); }
   };
+
   const startEditing = () => { setEditedRecipe({ ...selectedRecipe }); setIsEditing(true); };
   
-  // --- שמירה עם אפשרות שינוי תיקייה ---
   const saveEdit = async () => {
     try {
-      const res = await axios.put(`https://my-recipe-server-wt3u.onrender.com/api/recipes/${selectedRecipe._id}`, editedRecipe);
+      const res = await axios.put(`/api/recipes/${selectedRecipe._id}`, editedRecipe);
       setSelectedRecipe(res.data); 
-      // מעדכנים את הרשימה (אם החלפנו תיקייה, זה בסדר שהמתכון יישאר על המסך עד שנעבור תיקייה)
       setRecipes(recipes.map(r => r._id === res.data._id ? res.data : r)); 
       setIsEditing(false);
     } catch (e) { alert('שגיאה בשמירה'); }
@@ -146,7 +175,15 @@ function App() {
   const deleteInstruction = (index) => {
       const newInstructions = editedRecipe.instructions.filter((_, i) => i !== index); setEditedRecipe({ ...editedRecipe, instructions: newInstructions });
   };
-  const logout = () => { setToken(null); setUser(null); localStorage.removeItem('token'); setFolders([]); setRecipes([]); };
+
+  const logout = () => { 
+    setToken(null); 
+    setUser(null); 
+    localStorage.removeItem('token'); 
+    localStorage.removeItem('user'); // ניקוי משתמש
+    setFolders([]); 
+    setRecipes([]); 
+  };
 
   if (!token) return (
     <div className="login-container glass-effect">
@@ -155,9 +192,10 @@ function App() {
       </button>
 
       <div className="login-content">
-        <FutureLogo className="login-logo bounce" />
+        {/* שימוש בלוגו תמונה */}
+        <FutureLogo className="login-logo" />
         <h1>הכניסה למטבח העתידני</h1>
-        <p>המתכונים שלך, בכל מקום ובכל זמן.</p>
+        <p>סרקו, שמרו ובשלו בעולם דיגיטלי חדש.</p>
         <div className="google-btn-wrapper glow-hover">
           <GoogleLogin onSuccess={handleGoogleSuccess} theme={theme === 'dark' ? "filled_black" : "filled_blue"} shape="pill" />
         </div>
@@ -171,7 +209,7 @@ function App() {
       <header className="app-header glass-effect">
         <div className="brand">
           <FutureLogo className="header-logo" />
-          <span className="logo-text">{user?.name.split(' ')[0]}'s Kitchen</span>
+          <span className="logo-text">{user?.name ? user.name.split(' ')[0] : 'My'}'s Kitchen</span>
         </div>
         
         <div className="header-actions">
@@ -257,7 +295,10 @@ function App() {
           <div className={`gallery-grid fade-in ${recipes.length === 0 ? 'empty' : ''}`}>
             {loading && <div className="loading-state"><i className="ph ph-spinner spin icon-huge highlight"></i><p>טוען נתונים...</p></div>}
             
-            {!loading && recipes.length === 0 && (
+            {/* הודעת שגיאה אם יש */}
+            {errorMsg && <div className="error-message glass-effect"><i className="ph ph-warning"></i> {errorMsg}</div>}
+
+            {!loading && !errorMsg && recipes.length === 0 && (
               <div className="empty-state glass-effect">
                 <i className="ph ph-cooking-pot icon-huge faded"></i>
                 <p>התיקייה ריקה. זה הזמן להתחיל לבשל!</p>
@@ -328,7 +369,6 @@ function App() {
                   <div className="edit-mode-header edit-section">
                     <input className="edit-input title-input" value={editedRecipe.title} onChange={e => handleEditChange('title', e.target.value)} placeholder="שם המתכון" />
                     
-                    {/* --- בחירת קטגוריה (תיקייה) --- */}
                     <div className="folder-selector-wrapper">
                       <label><i className="ph ph-folder-notch-open"></i> שייך לתיקייה:</label>
                       <select 
