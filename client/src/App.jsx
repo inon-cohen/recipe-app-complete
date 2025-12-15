@@ -69,20 +69,20 @@ function App() {
   // --- API Functions ---
   const fetchFolders = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/folders');
+      const res = await axios.get('https://my-recipe-server-wt3u.onrender.com/api/folders');
       setFolders(res.data);
     } catch (e) { console.error(e); logout(); }
   };
   const fetchRecipes = async (folderId) => {
     setLoading(true);
     try {
-      const res = await axios.get(`http://localhost:5000/api/recipes`, { params: { folderId: folderId } });
+      const res = await axios.get(`https://my-recipe-server-wt3u.onrender.com/api/recipes`, { params: { folderId: folderId } });
       setRecipes(res.data);
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
   const handleGoogleSuccess = async (response) => {
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/google', { token: response.credential });
+      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/auth/google', { token: response.credential });
       const { token, user } = res.data;
       setToken(token); setUser(user); localStorage.setItem('token', token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -92,7 +92,7 @@ function App() {
   const createFolder = async () => {
     if (!newFolderName) return;
     try {
-      const res = await axios.post('http://localhost:5000/api/folders', { name: newFolderName });
+      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/folders', { name: newFolderName });
       setFolders([...folders, res.data]); setNewFolderName('');
     } catch (e) { alert('שגיאה ביצירת תיקייה'); }
   };
@@ -103,7 +103,7 @@ function App() {
     formData.append('image', file);
     formData.append('folderId', selectedFolder ? selectedFolder._id : 'null');
     try {
-      const res = await axios.post('http://localhost:5000/api/recipes/upload', formData);
+      const res = await axios.post('https://my-recipe-server-wt3u.onrender.com/api/recipes/upload', formData);
       setRecipes([res.data, ...recipes]); setSelectedRecipe(res.data); setView('details'); setFile(null); setShowOriginal(false);
     } catch (e) { alert('שגיאה בפיענוח'); } finally { setLoading(false); }
   };
@@ -114,7 +114,7 @@ function App() {
     const formData = new FormData();
     formData.append('image', dishFile);
     try {
-      const res = await axios.post(`http://localhost:5000/api/recipes/${selectedRecipe._id}/dish-image`, formData);
+      const res = await axios.post(`https://my-recipe-server-wt3u.onrender.com/api/recipes/${selectedRecipe._id}/dish-image`, formData);
       setSelectedRecipe(res.data); setRecipes(recipes.map(r => r._id === res.data._id ? res.data : r));
     } catch (e) { alert('שגיאה בהעלאת תמונה'); } finally { setLoading(false); }
   };
@@ -123,7 +123,7 @@ function App() {
   // --- שמירה עם אפשרות שינוי תיקייה ---
   const saveEdit = async () => {
     try {
-      const res = await axios.put(`http://localhost:5000/api/recipes/${selectedRecipe._id}`, editedRecipe);
+      const res = await axios.put(`https://my-recipe-server-wt3u.onrender.com/api/recipes/${selectedRecipe._id}`, editedRecipe);
       setSelectedRecipe(res.data); 
       // מעדכנים את הרשימה (אם החלפנו תיקייה, זה בסדר שהמתכון יישאר על המסך עד שנעבור תיקייה)
       setRecipes(recipes.map(r => r._id === res.data._id ? res.data : r)); 
