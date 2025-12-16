@@ -103,6 +103,23 @@ app.post('/api/folders', authenticateToken, async (req, res) => {
   res.json(newFolder);
 });
 
+// --- עדכון שם תיקייה (חדש!) ---
+app.put('/api/folders/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const folder = await Folder.findOneAndUpdate(
+      { _id: id, userId: req.user.id },
+      { name },
+      { new: true }
+    );
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+    res.json(folder);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Recipes
 app.get('/api/recipes', authenticateToken, async (req, res) => {
   try {
@@ -120,7 +137,7 @@ app.get('/api/recipes', authenticateToken, async (req, res) => {
   }
 });
 
-// 1. העלאת מתכון חדש (עם הנחיות קשוחות לדיוק)
+// Upload Recipe
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
@@ -134,26 +151,13 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
 
     const model = genAI.getGenerativeModel({ 
       model: "gemini-flash-latest",
-      generationConfig: { temperature: 0.0 } // אפס יצירתיות
+      generationConfig: { temperature: 0.0 }
     });
     
-    // --- ההנחיה החדשה והקשוחה ---
     const prompt = `
-      You are a strict OCR machine designed to transcribe recipe text from images.
-      
-      CRITICAL RULES (DO NOT BREAK):
-      1. TRANSCRIPTION ONLY: Write EXACTLY what you see in the image. Do NOT add missing ingredients (e.g. do not add "Salt" or "Water" if not written).
-      2. NO HALLUCINATIONS: Do not invent quantities. If the text says "Flour", do NOT write "1 cup Flour". Leave the amount empty.
-      3. STRICT JSON: Return only the raw JSON structure below.
-      4. LANGUAGE: Keep the text in Hebrew exactly as it appears.
-      
-      JSON Structure:
-      {
-        "title": "Exact title from image",
-        "description": "Exact description or empty string",
-        "ingredients": [{"name": "exact name", "amount": "exact amount", "unit": "exact unit"}],
-        "instructions": ["step 1", "step 2"]
-      }
+      You are a strict OCR machine. Write EXACTLY what you see in the image.
+      CRITICAL: Do NOT add missing ingredients. Do NOT invent quantities. Keep Hebrew text exactly as is.
+      JSON Structure: { "title": "Exact title", "description": "Exact desc", "ingredients": [{"name": "", "amount": "", "unit": ""}], "instructions": ["step 1"] }
     `;
     
     const result = await model.generateContent([prompt, { inlineData: { data: req.file.buffer.toString("base64"), mimeType: req.file.mimetype } }]);
@@ -170,7 +174,7 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
   }
 });
 
-// 2. עדכון טקסט מתכון
+// Update Recipe
 app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -186,7 +190,19 @@ app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// 3. העלאת תמונת מנה
+// --- מחיקת מתכון (חדש!) ---
+app.delete('/api/recipes/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedRecipe = await Recipe.findOneAndDelete({ _id: id, userId: req.user.id });
+    if (!deletedRecipe) return res.status(404).json({ error: 'Not found' });
+    res.json({ message: 'Deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload Dish Image
 app.post('/api/recipes/:id/dish-image', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
