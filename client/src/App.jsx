@@ -3,16 +3,10 @@ import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import './App.css';
 
-// כתובת השרת
 const API_URL = "https://my-recipe-server-wt3u.onrender.com"; 
 
 const FutureLogo = ({ className }) => (
-  <img 
-    src="/logo.png" 
-    alt="לוגו" 
-    className={className}
-    style={{ objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,0,0,0.1))' }}
-  />
+  <img src="/logo.png" alt="לוגו" className={className} style={{ objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,0,0,0.1))' }} />
 );
 
 function App() {
@@ -22,29 +16,26 @@ function App() {
   
   const [token, setToken] = useState(localStorage.getItem('token'));
   
-  // Data
   const [folders, setFolders] = useState([]);
   const [recipes, setRecipes] = useState([]);
-  
-  // Views
   const [view, setView] = useState('folders'); 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
-  
-  // Inputs & Edit States
   const [newFolderName, setNewFolderName] = useState('');
+  
   const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null); // תיקון תצוגה מקדימה
+
   const [isEditing, setIsEditing] = useState(false);
   const [editedRecipe, setEditedRecipe] = useState(null);
   const [showOriginal, setShowOriginal] = useState(false);
   
-  // --- Folder Management States ---
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [editingFolderId, setEditingFolderId] = useState(null); // ה-ID של התיקייה שעורכים כרגע
-  const [editFolderName, setEditFolderName] = useState(''); // השם הזמני בעריכה
+  const [editingFolderId, setEditingFolderId] = useState(null); 
+  const [editFolderName, setEditFolderName] = useState(''); 
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
@@ -65,11 +56,20 @@ function App() {
     }
   }, [token]);
 
-  // Navigation
+  // עדכון תצוגה מקדימה כשבוחרים קובץ
+  useEffect(() => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      // ניקוי זיכרון כשהקומפוננטה מתעדכנת
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setPreviewUrl(null);
+    }
+  }, [file]);
+
   const openFolder = (folder) => {
-    // מונע כניסה לתיקייה אם אנחנו באמצע עריכת השם שלה
     if (editingFolderId) return;
-    
     setSelectedFolder(folder);
     fetchRecipes(folder ? folder._id : null);
     setView('gallery');
@@ -77,20 +77,14 @@ function App() {
 
   const goHome = () => { setSelectedFolder(null); setView('folders'); setRecipes([]); };
 
-  // --- API ---
   const fetchFolders = async () => {
-    try {
-      const res = await axios.get('/api/folders');
-      setFolders(res.data);
-    } catch (e) { if (e.response?.status === 401) logout(); }
+    try { const res = await axios.get('/api/folders'); setFolders(res.data); } catch (e) { if (e.response?.status === 401) logout(); }
   };
 
   const fetchRecipes = async (folderId) => {
     setLoading(true); setErrorMsg('');
-    try {
-      const res = await axios.get(`/api/recipes`, { params: { folderId: folderId } });
-      setRecipes(res.data);
-    } catch (e) { setErrorMsg('תקלה בטעינת מתכונים'); } finally { setLoading(false); }
+    try { const res = await axios.get(`/api/recipes`, { params: { folderId: folderId } }); setRecipes(res.data); } 
+    catch (e) { setErrorMsg('תקלה בטעינת מתכונים'); } finally { setLoading(false); }
   };
 
   const createFolder = async () => {
@@ -101,9 +95,8 @@ function App() {
     } catch (e) { alert('שגיאה ביצירת תיקייה'); }
   };
 
-  // --- פונקציית עריכת שם תיקייה (חדש!) ---
   const startEditingFolder = (e, folder) => {
-    e.stopPropagation(); // מונע כניסה לתיקייה כשלוחצים על העיפרון
+    e.stopPropagation();
     setEditingFolderId(folder._id);
     setEditFolderName(folder.name);
   };
@@ -112,7 +105,6 @@ function App() {
     e.stopPropagation();
     try {
       const res = await axios.put(`/api/folders/${editingFolderId}`, { name: editFolderName });
-      // עדכון הרשימה המקומית
       setFolders(folders.map(f => f._id === editingFolderId ? res.data : f));
       setEditingFolderId(null);
     } catch (err) { alert('שגיאה בשינוי שם התיקייה'); }
@@ -153,7 +145,6 @@ function App() {
     } catch (e) { alert('התחברות נכשלה'); }
   };
 
-  // --- עריכת מתכון ---
   const startEditing = () => { setEditedRecipe({ ...selectedRecipe }); setIsEditing(true); };
   const saveEdit = async () => {
     try {
@@ -162,16 +153,14 @@ function App() {
     } catch (e) { alert('שגיאה בשמירה'); }
   };
 
-  // --- מחיקת מתכון (חדש!) ---
   const handleDeleteRecipe = async () => {
     if (!window.confirm('האם למחוק את המתכון הזה לצמיתות?')) return;
     try {
       await axios.delete(`/api/recipes/${selectedRecipe._id}`);
-      // מחיקה מהרשימה המקומית ומעבר חזרה לגלריה
       setRecipes(recipes.filter(r => r._id !== selectedRecipe._id));
       setSelectedRecipe(null);
       setView('gallery');
-    } catch (e) { alert('שגיאה במחיקת המתכון'); }
+    } catch (e) { alert('שגיאה במחיקה'); }
   };
 
   const handleEditChange = (f, v) => setEditedRecipe({ ...editedRecipe, [f]: v });
@@ -218,33 +207,22 @@ function App() {
                 <h3>כללי / הכל</h3>
                 <p>כל המתכונים ללא שיוך</p>
               </div>
-
               {folders.map(f => (
                 <div key={f._id} className="folder-card glass-effect glow-hover-card" onClick={() => openFolder(f)}>
                   {editingFolderId === f._id ? (
-                    /* מצב עריכת שם תיקייה */
                     <div className="rename-folder-box" onClick={e => e.stopPropagation()}>
-                      <input 
-                        autoFocus
-                        value={editFolderName} 
-                        onChange={e => setEditFolderName(e.target.value)}
-                        className="rename-input"
-                      />
+                      <input autoFocus value={editFolderName} onChange={e => setEditFolderName(e.target.value)} className="rename-input" />
                       <button className="icon-btn success small" onClick={saveFolderRename}><i className="ph ph-check"></i></button>
                     </div>
                   ) : (
                     <>
-                      {/* כפתור עריכת תיקייה (חדש!) */}
-                      <button className="edit-folder-btn" onClick={(e) => startEditingFolder(e, f)}>
-                        <i className="ph ph-pencil-simple"></i>
-                      </button>
+                      <button className="edit-folder-btn" onClick={(e) => startEditingFolder(e, f)}><i className="ph ph-pencil-simple"></i></button>
                       <div className="folder-icon"><i className="ph ph-folder-notch-open"></i></div>
                       <h3>{f.name}</h3>
                     </>
                   )}
                 </div>
               ))}
-
               {!isCreatingFolder ? (
                 <div className="folder-card add-folder-card" onClick={() => setIsCreatingFolder(true)}>
                   <i className="ph ph-plus"></i><span>צור תיקייה</span>
@@ -268,24 +246,29 @@ function App() {
           </button>
         )}
 
+        {/* --- מסך העלאה מתוקן ומרכזי --- */}
         {view === 'upload' && (
-          <div className="content-container glass-effect fade-in">
-            <div className="upload-header">
-              <button className="icon-btn back-btn" onClick={() => view === 'folders' ? setView('folders') : setView('gallery')}><i className="ph ph-arrow-right"></i></button>
-              <h2>סריקה חדשה</h2>
+          <div className="upload-container-wrapper fade-in">
+            <div className="content-container glass-effect">
+              <div className="upload-header">
+                <button className="icon-btn back-btn" onClick={() => view === 'folders' ? setView('folders') : setView('gallery')}><i className="ph ph-arrow-right"></i></button>
+                <h2>סריקה חדשה</h2>
+              </div>
+              <div className="upload-zone-wrapper">
+                <input type="file" id="file" accept="image/*" onChange={e => setFile(e.target.files[0])} hidden />
+                <label htmlFor="file" className={`upload-label glass-effect-inset ${previewUrl ? 'has-file' : ''}`}>
+                  {previewUrl ? 
+                    <div className="preview-img" style={{backgroundImage: `url(${previewUrl})`}}></div> : 
+                    <div className="upload-placeholder"><i className="ph ph-camera-rotate icon-huge bounce"></i><p>לחץ לצילום מתכון</p></div>
+                  }
+                </label>
+              </div>
+              {file && (
+                <button className="action-btn primary full-width glow-hover" onClick={handleUpload} disabled={loading}>
+                  {loading ? <><i className="ph ph-spinner spin"></i> מפענח...</> : <><i className="ph ph-magic-wand"></i> סרוק ושמור</>}
+                </button>
+              )}
             </div>
-            <div className="upload-zone-wrapper">
-              <input type="file" id="file" accept="image/*" onChange={e => setFile(e.target.files[0])} hidden />
-              <label htmlFor="file" className={`upload-label glass-effect-inset ${file ? 'has-file' : ''}`}>
-                {file ? <div className="preview-img" style={{backgroundImage: `url(${URL.createObjectURL(file)})`}}></div> : 
-                        <div className="upload-placeholder"><i className="ph ph-camera-rotate icon-huge bounce"></i><p>לחץ לצילום מתכון</p></div>}
-              </label>
-            </div>
-            {file && (
-              <button className="action-btn primary full-width glow-hover" onClick={handleUpload} disabled={loading}>
-                {loading ? <><i className="ph ph-spinner spin"></i> מפענח...</> : <><i className="ph ph-magic-wand"></i> סרוק ושמור</>}
-              </button>
-            )}
           </div>
         )}
 
@@ -324,7 +307,6 @@ function App() {
                <button className="icon-btn" onClick={() => setView('gallery')}><i className="ph ph-arrow-right"></i></button>
                {!isEditing ? (
                  <div className="view-actions">
-                   {/* כפתור מחיקה חדש */}
                    <button className="icon-btn danger" onClick={handleDeleteRecipe}><i className="ph ph-trash"></i></button>
                    <button className="icon-btn primary glow-hover" onClick={startEditing}><i className="ph ph-pencil-simple"></i></button>
                  </div>
@@ -339,7 +321,7 @@ function App() {
             {!isEditing && (
               <div className="ai-warning glass-effect-inset">
                 <i className="ph ph-warning-circle"></i>
-                <span>ה-AI עלול לטעות. אנא וודאו שהמתכון תקין (ניתן לערוך ב-✏️).</span>
+                <span>וודאו שהמתכון תקין.</span>
               </div>
             )}
 
@@ -430,7 +412,6 @@ function App() {
           </div>
         )}
       </main>
-      {isMobileMenuOpen && <div className="sidebar-overlay mobile-only fade-in" onClick={() => setIsMobileMenuOpen(false)}></div>}
     </div>
   );
 }

@@ -73,7 +73,6 @@ const authenticateToken = (req, res, next) => {
 
 // --- Routes ---
 
-// Login
 app.post('/api/auth/google', async (req, res) => {
   const { token } = req.body;
   try {
@@ -91,7 +90,6 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-// Folders
 app.get('/api/folders', authenticateToken, async (req, res) => {
   const folders = await Folder.find({ userId: req.user.id });
   res.json(folders);
@@ -103,41 +101,28 @@ app.post('/api/folders', authenticateToken, async (req, res) => {
   res.json(newFolder);
 });
 
-// --- עדכון שם תיקייה (חדש!) ---
 app.put('/api/folders/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
-    const folder = await Folder.findOneAndUpdate(
-      { _id: id, userId: req.user.id },
-      { name },
-      { new: true }
-    );
+    const folder = await Folder.findOneAndUpdate({ _id: id, userId: req.user.id }, { name }, { new: true });
     if (!folder) return res.status(404).json({ error: 'Folder not found' });
     res.json(folder);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Recipes
 app.get('/api/recipes', authenticateToken, async (req, res) => {
   try {
     const { folderId } = req.query;
     const query = { userId: req.user.id };
-    if (folderId && folderId !== 'null') {
-      query.folderId = folderId;
-    } else {
-      query.folderId = null;
-    }
+    if (folderId && folderId !== 'null') query.folderId = folderId;
+    else query.folderId = null;
     const recipes = await Recipe.find(query).sort({ createdAt: -1 });
     res.json(recipes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Upload Recipe
+// --- סריקה קשוחה (OCR Only) ---
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
@@ -151,18 +136,50 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
 
     const model = genAI.getGenerativeModel({ 
       model: "gemini-flash-latest",
-      generationConfig: { temperature: 0.0 }
+      generationConfig: { temperature: 0.0, topP: 0.1, topK: 1 } // טמפרטורה 0 = אפס המצאות
     });
     
+    // הוראות קשוחות מאוד
     const prompt = `
-      You are a strict OCR machine. Write EXACTLY what you see in the image.
-      CRITICAL: Do NOT add missing ingredients. Do NOT invent quantities. Keep Hebrew text exactly as is.
-      JSON Structure: { "title": "Exact title", "description": "Exact desc", "ingredients": [{"name": "", "amount": "", "unit": ""}], "instructions": ["step 1"] }
+      You are a dumb OCR scanner. You do not know how to cook. You only know how to read text.
+      
+      YOUR TASK:
+      Extract the text from the image EXACTLY as written.
+      
+      RULES:
+      1. COPY ONLY: If the image says "Flour", output "Flour". Do NOT change it to "White Flour" or "1 cup Flour".
+      2. NO INVENTING: If an ingredient is missing a quantity, leave the amount empty. NEVER invent numbers.
+      3. NO ADDING: Do not add "Salt", "Pepper", or "Water" if they are not in the text.
+      4. LANGUAGE: Output Hebrew text exactly as it appears in the image.
+      
+      OUTPUT JSON FORMAT ONLY:
+      {
+        "title": "Title exactly from image",
+        "description": "Description exactly from image (or empty)",
+        "ingredients": [{"name": "exact text", "amount": "exact text", "unit": "exact text"}],
+        "instructions": ["step 1 exact text", "step 2 exact text"]
+      }
     `;
     
     const result = await model.generateContent([prompt, { inlineData: { data: req.file.buffer.toString("base64"), mimeType: req.file.mimetype } }]);
-    const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
-    const recipeData = JSON.parse(text);
+    let text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    // ניקוי תווים בלתי נראים שאולי נדבקו
+    if (text.startsWith('{') === false) {
+       const firstBrace = text.indexOf('{');
+       const lastBrace = text.lastIndexOf('}');
+       if (firstBrace !== -1 && lastBrace !== -1) {
+           text = text.substring(firstBrace, lastBrace + 1);
+       }
+    }
+
+    let recipeData;
+    try {
+        recipeData = JSON.parse(text);
+    } catch (e) {
+        console.error("JSON Parse Error", text);
+        return res.status(500).json({ error: "Failed to parse recipe. Please try a clearer image." });
+    }
 
     const newRecipe = new Recipe({ ...recipeData, imageUrl: cloudRes.secure_url, userId: req.user.id, folderId });
     await newRecipe.save();
@@ -174,56 +191,36 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
   }
 });
 
-// Update Recipe
 app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedRecipe = await Recipe.findOneAndUpdate(
-      { _id: id, userId: req.user.id }, 
-      req.body, 
-      { new: true }
-    );
+    const updatedRecipe = await Recipe.findOneAndUpdate({ _id: id, userId: req.user.id }, req.body, { new: true });
     if (!updatedRecipe) return res.status(404).json({ error: 'Not found' });
     res.json(updatedRecipe);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- מחיקת מתכון (חדש!) ---
 app.delete('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const deletedRecipe = await Recipe.findOneAndDelete({ _id: id, userId: req.user.id });
     if (!deletedRecipe) return res.status(404).json({ error: 'Not found' });
     res.json({ message: 'Deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Upload Dish Image
 app.post('/api/recipes/:id/dish-image', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
     const { id } = req.params;
-
     const uploadToCloud = () => new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream({ folder: 'dishes' }, (err, res) => err ? reject(err) : resolve(res));
         stream.end(req.file.buffer);
     });
     const cloudRes = await uploadToCloud();
-
-    const updatedRecipe = await Recipe.findOneAndUpdate(
-      { _id: id, userId: req.user.id },
-      { dishImageUrl: cloudRes.secure_url },
-      { new: true }
-    );
-
+    const updatedRecipe = await Recipe.findOneAndUpdate({ _id: id, userId: req.user.id }, { dishImageUrl: cloudRes.secure_url }, { new: true });
     res.json(updatedRecipe);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.listen(port, () => console.log(`🚀 Server on ${port}`));
