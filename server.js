@@ -103,7 +103,7 @@ app.post('/api/folders', authenticateToken, async (req, res) => {
   res.json(newFolder);
 });
 
-// --- עדכון שם תיקייה (חדש!) ---
+// Update Folder Name
 app.put('/api/folders/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -137,7 +137,7 @@ app.get('/api/recipes', authenticateToken, async (req, res) => {
   }
 });
 
-// Upload Recipe
+// --- זה החלק החשוב: סריקת המתכון ללא המצאות ---
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
@@ -149,20 +149,48 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
     });
     const cloudRes = await uploadToCloud();
 
+    // 1. הורדנו את הטמפרטורה ל-0.0 (אפס יצירתיות)
     const model = genAI.getGenerativeModel({ 
       model: "gemini-flash-latest",
-      generationConfig: { temperature: 0.0 }
+      generationConfig: { 
+        temperature: 0.0,
+        topP: 0.1,
+        topK: 1
+      }
     });
     
+    // 2. הפרומפט החדש והאגרסיבי
     const prompt = `
-      You are a strict OCR machine. Write EXACTLY what you see in the image.
-      CRITICAL: Do NOT add missing ingredients. Do NOT invent quantities. Keep Hebrew text exactly as is.
-      JSON Structure: { "title": "Exact title", "description": "Exact desc", "ingredients": [{"name": "", "amount": "", "unit": ""}], "instructions": ["step 1"] }
+      TASK: You are a strict OCR (Optical Character Recognition) engine. 
+      Your ONLY job is to copy the text from the recipe image EXACTLY as it appears.
+
+      STRICT RULES - READ CAREFULLY:
+      1. NO HALLUCINATIONS: Do NOT add any ingredients that are not visible in the image. If the image says "Flour", do not write "White Flour" or "1 cup Flour".
+      2. NO GUESSING: If a quantity is missing, leave the amount empty. Do not guess "1 pinch" or "to taste".
+      3. NO EXTRA STEPS: Do not add instructions like "Preheat oven" or "Serve cold" unless they are explicitly written in the text.
+      4. EXACT LANGUAGE: Copy the Hebrew text exactly as is. Do not translate or rephrase.
+      5. FORMAT: Return ONLY the raw JSON structure below.
+
+      JSON Structure:
+      {
+        "title": "Title exactly as found in image",
+        "description": "Description exactly as found (or empty string)",
+        "ingredients": [{"name": "exact text", "amount": "exact text", "unit": "exact text"}],
+        "instructions": ["step 1 text", "step 2 text"]
+      }
     `;
     
     const result = await model.generateContent([prompt, { inlineData: { data: req.file.buffer.toString("base64"), mimeType: req.file.mimetype } }]);
     const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
-    const recipeData = JSON.parse(text);
+    
+    let recipeData;
+    try {
+        recipeData = JSON.parse(text);
+    } catch (e) {
+        // Fallback למקרה של JSON שבור
+        console.error("JSON Parse Error", text);
+        return res.status(500).json({ error: "Failed to parse recipe from image" });
+    }
 
     const newRecipe = new Recipe({ ...recipeData, imageUrl: cloudRes.secure_url, userId: req.user.id, folderId });
     await newRecipe.save();
@@ -190,7 +218,7 @@ app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// --- מחיקת מתכון (חדש!) ---
+// Delete Recipe
 app.delete('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
