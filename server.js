@@ -121,7 +121,7 @@ app.get('/api/recipes', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- התיקון הגדול כאן: מנגנון חילוץ JSON חכם ---
+// --- Upload Logic Fixed ---
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
@@ -133,45 +133,58 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
     });
     const cloudRes = await uploadToCloud();
 
+    // --- שינוי קריטי: שימוש ב-Gemini 1.5 Flash עם JSON Mode ---
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-flash-latest", // המודל שעבד לנו הכי טוב
+      model: "gemini-1.5-flash", // גרסה שיודעת להחזיר JSON טהור
+      generationConfig: { 
+        responseMimeType: "application/json", // מכריח אותו להחזיר JSON
+        temperature: 0.1 
+      }
     });
     
     const prompt = `
-      You are a strict OCR machine. Write EXACTLY what you see in the image.
-      CRITICAL: Do NOT add missing ingredients. Do NOT invent quantities. Keep Hebrew text exactly as is.
-      JSON Structure: { "title": "Exact title", "description": "Exact desc", "ingredients": [{"name": "", "amount": "", "unit": ""}], "instructions": ["step 1"] }
+      You are a strict OCR machine. Extract recipe data from the image.
+      
+      Rules:
+      1. Copy text EXACTLY as seen in the image (Hebrew).
+      2. Do NOT add missing ingredients.
+      3. Do NOT invent quantities (use null or empty string if missing).
+      4. Output strict JSON only.
+
+      Schema:
+      {
+        "title": "string",
+        "description": "string",
+        "ingredients": [{"name": "string", "amount": "string", "unit": "string"}],
+        "instructions": ["string"]
+      }
     `;
     
+    console.log("Sending request to Gemini..."); // לוג לבדיקה
     const result = await model.generateContent([prompt, { inlineData: { data: req.file.buffer.toString("base64"), mimeType: req.file.mimetype } }]);
-    let text = result.response.text();
-    
-    // --- מנקה חכם: מוצא רק את ה-JSON מתוך הטקסט ---
+    const text = result.response.text();
+    console.log("Gemini Raw Response:", text); // לוג קריטי - נראה מה הוא החזיר
+
+    let recipeData;
     try {
-      // 1. הסרת תגיות קוד אם יש
-      text = text.replace(/```json/g, "").replace(/```/g, "");
-      
-      // 2. חיפוש הסוגריים המסולסלים החיצוניים
-      const firstBracket = text.indexOf('{');
-      const lastBracket = text.lastIndexOf('}');
-      
-      if (firstBracket !== -1 && lastBracket !== -1) {
-        text = text.substring(firstBracket, lastBracket + 1);
-      }
-      
-      const recipeData = JSON.parse(text);
-
-      const newRecipe = new Recipe({ ...recipeData, imageUrl: cloudRes.secure_url, userId: req.user.id, folderId });
-      await newRecipe.save();
-      res.json(newRecipe);
-
+        recipeData = JSON.parse(text);
     } catch (e) {
-      console.error("Failed to parse JSON:", text); // לוג לשרת
-      res.status(500).json({ error: "המערכת לא הצליחה לקרוא את התשובה מה-AI. נסה שוב." });
+        console.error("❌ JSON Parse Failed. Raw text was:", text);
+        // Fallback: במקום לקרוס, נחזיר מתכון ריק עם הכותרת "שגיאה בסריקה"
+        recipeData = {
+            title: "שגיאה בסריקה (נא לערוך ידנית)",
+            description: "ה-AI לא הצליח לפענח את התמונה. ניתן למלא את הפרטים ידנית.",
+            ingredients: [],
+            instructions: []
+        };
     }
 
+    const newRecipe = new Recipe({ ...recipeData, imageUrl: cloudRes.secure_url, userId: req.user.id, folderId });
+    await newRecipe.save();
+    res.json(newRecipe);
+
   } catch (error) {
-    console.error(error);
+    console.error("CRITICAL SERVER ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
