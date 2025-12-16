@@ -136,10 +136,14 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
 
     const model = genAI.getGenerativeModel({ 
       model: "gemini-flash-latest",
-      generationConfig: { temperature: 0.0, topP: 0.1, topK: 1 } // טמפרטורה 0 = אפס המצאות
+      generationConfig: { 
+        temperature: 0.0, // אפס יצירתיות
+        topP: 0.1,
+        topK: 1
+      }
     });
     
-    // הוראות קשוחות מאוד
+    // הוראות קשוחות מאוד - מונע המצאות
     const prompt = `
       You are a dumb OCR scanner. You do not know how to cook. You only know how to read text.
       

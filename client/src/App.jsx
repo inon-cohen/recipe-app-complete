@@ -27,7 +27,7 @@ function App() {
   const [newFolderName, setNewFolderName] = useState('');
   
   const [file, setFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null); // תיקון תצוגה מקדימה
+  const [previewUrl, setPreviewUrl] = useState(null); // משתנה לתצוגה המקדימה
 
   const [isEditing, setIsEditing] = useState(false);
   const [editedRecipe, setEditedRecipe] = useState(null);
@@ -56,12 +56,11 @@ function App() {
     }
   }, [token]);
 
-  // עדכון תצוגה מקדימה כשבוחרים קובץ
+  // --- תיקון לתצוגה המקדימה ---
   useEffect(() => {
     if (file) {
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
-      // ניקוי זיכרון כשהקומפוננטה מתעדכנת
       return () => URL.revokeObjectURL(url);
     } else {
       setPreviewUrl(null);
@@ -246,7 +245,6 @@ function App() {
           </button>
         )}
 
-        {/* --- מסך העלאה מתוקן ומרכזי --- */}
         {view === 'upload' && (
           <div className="upload-container-wrapper fade-in">
             <div className="content-container glass-effect">
@@ -256,6 +254,7 @@ function App() {
               </div>
               <div className="upload-zone-wrapper">
                 <input type="file" id="file" accept="image/*" onChange={e => setFile(e.target.files[0])} hidden />
+                {/* כאן התיקון: תצוגה מקדימה עובדת */}
                 <label htmlFor="file" className={`upload-label glass-effect-inset ${previewUrl ? 'has-file' : ''}`}>
                   {previewUrl ? 
                     <div className="preview-img" style={{backgroundImage: `url(${previewUrl})`}}></div> : 
@@ -412,6 +411,7 @@ function App() {
           </div>
         )}
       </main>
+      {isMobileMenuOpen && <div className="sidebar-overlay mobile-only fade-in" onClick={() => setIsMobileMenuOpen(false)}></div>}
     </div>
   );
 }
