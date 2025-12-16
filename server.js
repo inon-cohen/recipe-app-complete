@@ -101,6 +101,7 @@ app.post('/api/folders', authenticateToken, async (req, res) => {
   res.json(newFolder);
 });
 
+// עדכון שם תיקייה
 app.put('/api/folders/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -121,59 +122,59 @@ app.get('/api/recipes', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- Upload Logic Fixed ---
+// --- סריקת מתכון (הגרסה שעבדה!) ---
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
     const folderId = req.body.folderId === 'null' ? null : req.body.folderId;
 
+    // 1. מעלים תמונה
     const uploadToCloud = () => new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream({ folder: 'recipes' }, (err, res) => err ? reject(err) : resolve(res));
         stream.end(req.file.buffer);
     });
     const cloudRes = await uploadToCloud();
 
-    // --- שינוי קריטי: שימוש ב-Gemini 1.5 Flash עם JSON Mode ---
+    // 2. מודל - חוזרים ל-gemini-flash-latest בלי הגדרות מסובכות
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash", // גרסה שיודעת להחזיר JSON טהור
-      generationConfig: { 
-        responseMimeType: "application/json", // מכריח אותו להחזיר JSON
-        temperature: 0.1 
-      }
+      model: "gemini-flash-latest",
+      generationConfig: { temperature: 0.1 } // שומרים על דיוק אבל בלי JSON Mode שקרס
     });
     
+    // 3. פרומפט ברור
     const prompt = `
-      You are a strict OCR machine. Extract recipe data from the image.
+      You are a strict OCR assistant. Read the text in the image and convert it to JSON.
       
-      Rules:
-      1. Copy text EXACTLY as seen in the image (Hebrew).
+      RULES:
+      1. Copy text EXACTLY as seen in the image.
       2. Do NOT add missing ingredients.
-      3. Do NOT invent quantities (use null or empty string if missing).
-      4. Output strict JSON only.
+      3. Do NOT invent quantities.
+      4. Output raw JSON only.
 
-      Schema:
+      Structure:
       {
-        "title": "string",
-        "description": "string",
-        "ingredients": [{"name": "string", "amount": "string", "unit": "string"}],
-        "instructions": ["string"]
+        "title": "Recipe Title",
+        "description": "Short description from text",
+        "ingredients": [{"name": "item", "amount": "qty", "unit": "unit"}],
+        "instructions": ["step 1", "step 2"]
       }
     `;
     
-    console.log("Sending request to Gemini..."); // לוג לבדיקה
     const result = await model.generateContent([prompt, { inlineData: { data: req.file.buffer.toString("base64"), mimeType: req.file.mimetype } }]);
-    const text = result.response.text();
-    console.log("Gemini Raw Response:", text); // לוג קריטי - נראה מה הוא החזיר
+    
+    // 4. ניקוי ידני (השיטה שעבדה בהתחלה)
+    let text = result.response.text();
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim(); // מנקה את ה-Markdown
 
     let recipeData;
     try {
         recipeData = JSON.parse(text);
     } catch (e) {
-        console.error("❌ JSON Parse Failed. Raw text was:", text);
-        // Fallback: במקום לקרוס, נחזיר מתכון ריק עם הכותרת "שגיאה בסריקה"
+        console.error("Failed to parse JSON:", text);
+        // במקום לקרוס, נחזיר מתכון עם שגיאה כדי שתוכל לערוך
         recipeData = {
-            title: "שגיאה בסריקה (נא לערוך ידנית)",
-            description: "ה-AI לא הצליח לפענח את התמונה. ניתן למלא את הפרטים ידנית.",
+            title: "שגיאה בפענוח (נא לערוך)",
+            description: "לא הצלחנו לקרוא את הטקסט באופן אוטומטי. אנא מלא את הפרטים.",
             ingredients: [],
             instructions: []
         };
@@ -184,11 +185,12 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
     res.json(newRecipe);
 
   } catch (error) {
-    console.error("CRITICAL SERVER ERROR:", error);
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// עדכון מתכון
 app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -198,6 +200,7 @@ app.put('/api/recipes/:id', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// מחיקת מתכון
 app.delete('/api/recipes/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -207,6 +210,7 @@ app.delete('/api/recipes/:id', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// העלאת תמונת מנה
 app.post('/api/recipes/:id/dish-image', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
