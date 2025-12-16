@@ -3,8 +3,7 @@ import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import './App.css';
 
-// --- הגדרת כתובת השרת (חשוב!) ---
-// זה מחליף את localhost בכתובת האמיתית של השרת שלך
+// כתובת השרת שלך ב-Render
 const API_URL = "https://my-recipe-server-wt3u.onrender.com"; 
 
 const FutureLogo = ({ className }) => (
@@ -14,16 +13,18 @@ const FutureLogo = ({ className }) => (
     className={className}
     style={{ 
       objectFit: 'contain', 
-      filter: 'drop-shadow(0 0 8px rgba(0,0,0,0.2))'
+      filter: 'drop-shadow(0 0 8px rgba(0,0,0,0.1))'
     }}
   />
 );
 
 function App() {
-  // --- תיקון: טעינת משתמש מהזיכרון ---
+  // --- תיקון 2: טעינת משתמש בטוחה ---
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const savedUser = localStorage.getItem('user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) { return null; }
   });
   
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -33,7 +34,7 @@ function App() {
   
   const [view, setView] = useState('gallery'); 
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(''); // להצגת שגיאות על המסך
+  const [errorMsg, setErrorMsg] = useState('');
   
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
@@ -45,7 +46,8 @@ function App() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+  // --- תיקון 1: ברירת מחדל Light Mode ---
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -56,16 +58,18 @@ function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  // --- אתחול וטעינה ראשונית ---
   useEffect(() => {
     if (token) {
-      // הגדרת הכתובת הבסיסית לכל הבקשות
       axios.defaults.baseURL = API_URL;
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchFolders();
-      fetchRecipes(null);
+      // --- תיקון 4: טעינת מתכונים מיד בכניסה ---
+      fetchRecipes(null); 
     }
   }, [token]);
 
+  // טעינה כשמחליפים תיקייה
   useEffect(() => {
     if (token) {
       fetchRecipes(selectedFolder ? selectedFolder._id : null);
@@ -79,12 +83,9 @@ function App() {
   // --- API Functions ---
   const fetchFolders = async () => {
     try {
-      const res = await axios.get('/api/folders'); // שימוש בנתיב יחסי
+      const res = await axios.get('/api/folders');
       setFolders(res.data);
-    } catch (e) { 
-      console.error(e); 
-      if (e.response?.status === 401) logout(); 
-    }
+    } catch (e) { if (e.response?.status === 401) logout(); }
   };
 
   const fetchRecipes = async (folderId) => {
@@ -101,19 +102,18 @@ function App() {
 
   const handleGoogleSuccess = async (response) => {
     try {
-      // שימוש בכתובת המלאה להתחברות
       const res = await axios.post(`${API_URL}/api/auth/google`, { token: response.credential });
       const { token, user } = res.data;
       
       setToken(token); 
       setUser(user); 
       
-      // שמירה בזיכרון
       localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user)); // שומרים את פרטי המשתמש
+      localStorage.setItem('user', JSON.stringify(user));
       
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchFolders();
+      fetchRecipes(null); // טעינה מידית
     } catch (e) { alert('התחברות נכשלה'); }
   };
 
@@ -160,6 +160,7 @@ function App() {
     } catch (e) { alert('שגיאה בשמירה'); }
   };
 
+  // פונקציות עריכה (זהות לקודם)
   const handleEditChange = (field, value) => setEditedRecipe({ ...editedRecipe, [field]: value });
   const handleIngredientChange = (index, field, value) => {
     const newIngredients = [...editedRecipe.ingredients]; newIngredients[index][field] = value; setEditedRecipe({ ...editedRecipe, ingredients: newIngredients });
@@ -177,25 +178,19 @@ function App() {
   };
 
   const logout = () => { 
-    setToken(null); 
-    setUser(null); 
-    localStorage.removeItem('token'); 
-    localStorage.removeItem('user'); // ניקוי משתמש
-    setFolders([]); 
-    setRecipes([]); 
+    setToken(null); setUser(null); localStorage.removeItem('token'); localStorage.removeItem('user'); setFolders([]); setRecipes([]); 
   };
 
+  // --- מסך כניסה ---
   if (!token) return (
     <div className="login-container glass-effect">
        <button className="theme-toggle-login icon-btn" onClick={toggleTheme} title="החלף מצב">
           <i className={`ph ph-${theme === 'dark' ? 'sun' : 'moon'}`}></i>
       </button>
-
       <div className="login-content">
-        {/* שימוש בלוגו תמונה */}
         <FutureLogo className="login-logo" />
-        <h1>הכניסה למטבח העתידני</h1>
-        <p>סרקו, שמרו ובשלו בעולם דיגיטלי חדש.</p>
+        <h1>הכניסה למטבח שלי</h1>
+        <p>כל המתכונים, מסודרים ומדויקים.</p>
         <div className="google-btn-wrapper glow-hover">
           <GoogleLogin onSuccess={handleGoogleSuccess} theme={theme === 'dark' ? "filled_black" : "filled_blue"} shape="pill" />
         </div>
@@ -205,18 +200,16 @@ function App() {
 
   return (
     <div className="app-layout">
-      
       <header className="app-header glass-effect">
         <div className="brand">
           <FutureLogo className="header-logo" />
+          {/* תיקון תצוגת שם */}
           <span className="logo-text">{user?.name ? user.name.split(' ')[0] : 'My'}'s Kitchen</span>
         </div>
-        
         <div className="header-actions">
           <button className="icon-btn theme-btn" onClick={toggleTheme}>
             <i className={`ph ph-${theme === 'dark' ? 'sun' : 'moon'}`}></i>
           </button>
-
           <button className="icon-btn mobile-only" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             <i className={`ph ph-${isMobileMenuOpen ? 'x' : 'list'}`}></i>
           </button>
@@ -227,13 +220,10 @@ function App() {
       </header>
 
       <aside className={`app-sidebar glass-effect ${isMobileMenuOpen ? 'open' : ''}`}>
-        <div className="sidebar-header mobile-only">
-          <h3>תיקיות</h3>
-        </div>
-        
+        <div className="sidebar-header mobile-only"><h3>תיקיות</h3></div>
         <nav className="folders-nav">
            <button className={`nav-item ${!selectedFolder ? 'active' : ''}`} onClick={() => setSelectedFolder(null)}>
-            <i className="ph ph-house-line"></i> כללי
+            <i className="ph ph-house-line"></i> ראשי (כללי)
           </button>
           {folders.map(f => (
             <button key={f._id} className={`nav-item ${selectedFolder?._id === f._id ? 'active' : ''}`} onClick={() => setSelectedFolder(f)}>
@@ -241,17 +231,13 @@ function App() {
             </button>
           ))}
         </nav>
-
         <div className="add-folder-container">
           <div className="add-folder-input-wrapper glass-effect-inset">
             <input value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="תיקייה חדשה..." />
             <button className="icon-btn add-btn" onClick={createFolder} disabled={!newFolderName}><i className="ph ph-plus"></i></button>
           </div>
         </div>
-
-         <button onClick={logout} className="nav-item logout-item mobile-only">
-            <i className="ph ph-sign-out"></i> יציאה
-          </button>
+         <button onClick={logout} className="nav-item logout-item mobile-only"><i className="ph ph-sign-out"></i> יציאה</button>
       </aside>
 
       <main className="app-main">
@@ -268,21 +254,13 @@ function App() {
               <button className="icon-btn back-btn" onClick={() => setView('gallery')}><i className="ph ph-arrow-right"></i></button>
               <h2>סריקה ל: <span className="highlight">{selectedFolder ? selectedFolder.name : 'כללי'}</span></h2>
             </div>
-            
             <div className="upload-zone-wrapper">
               <input type="file" id="file" accept="image/*" onChange={e => setFile(e.target.files[0])} hidden />
               <label htmlFor="file" className={`upload-label glass-effect-inset ${file ? 'has-file' : ''}`}>
-                {file ? (
-                  <div className="preview-img" style={{backgroundImage: `url(${URL.createObjectURL(file)})`}}></div>
-                ) : (
-                   <div className="upload-placeholder">
-                      <i className="ph ph-camera-rotate icon-huge bounce"></i>
-                      <p>לחץ לצילום או גרירת תמונה</p>
-                   </div>
-                )}
+                {file ? ( <div className="preview-img" style={{backgroundImage: `url(${URL.createObjectURL(file)})`}}></div> ) : 
+                        ( <div className="upload-placeholder"><i className="ph ph-camera-rotate icon-huge bounce"></i><p>לחץ לצילום / בחירת תמונה</p></div> )}
               </label>
             </div>
-            
             {file && (
               <button className="action-btn primary full-width glow-hover" onClick={handleUpload} disabled={loading}>
                 {loading ? <><i className="ph ph-spinner spin"></i> מפענח...</> : <><i className="ph ph-magic-wand"></i> הפעל סריקה חכמה</>}
@@ -294,14 +272,13 @@ function App() {
         {view === 'gallery' && (
           <div className={`gallery-grid fade-in ${recipes.length === 0 ? 'empty' : ''}`}>
             {loading && <div className="loading-state"><i className="ph ph-spinner spin icon-huge highlight"></i><p>טוען נתונים...</p></div>}
-            
-            {/* הודעת שגיאה אם יש */}
             {errorMsg && <div className="error-message glass-effect"><i className="ph ph-warning"></i> {errorMsg}</div>}
-
+            
             {!loading && !errorMsg && recipes.length === 0 && (
               <div className="empty-state glass-effect">
                 <i className="ph ph-cooking-pot icon-huge faded"></i>
-                <p>התיקייה ריקה. זה הזמן להתחיל לבשל!</p>
+                <p>התיקייה ריקה. זה הזמן להתחיל לבשל! 🍳</p>
+                <p>לחץ על כפתור הפלוס (+) למטה לסריקה ראשונה.</p>
               </div>
             )}
 
@@ -324,7 +301,6 @@ function App() {
           <div className="details-container fade-in">
             <div className="details-actions-bar glass-effect">
                <button className="icon-btn" onClick={() => setView('gallery')}><i className="ph ph-arrow-right"></i></button>
-               
                {!isEditing ? (
                  <button className="icon-btn primary glow-hover" onClick={startEditing} title="ערוך"><i className="ph ph-pencil-simple"></i></button>
                ) : (
@@ -335,6 +311,14 @@ function App() {
                )}
             </div>
             
+            {/* --- תיקון 5: אזהרת AI --- */}
+            {!isEditing && (
+              <div className="ai-warning glass-effect-inset">
+                <i className="ph ph-robot"></i>
+                <span>ה-AI עלול לטעות. אנא וודאו שהמתכון נכון (ניתן לערוך בעזרת ה-✏️).</span>
+              </div>
+            )}
+
             <div className="hero-section">
               <div className="hero-img-wrapper glass-effect">
                 {selectedRecipe.dishImageUrl ? (
@@ -348,9 +332,9 @@ function App() {
                 ) : (
                   <div className="no-dish-placeholder">
                      <i className="ph ph-pizza icon-huge highlight"></i>
-                     <p>אין תמונה של המנה המוכנה.</p>
+                     <p>אין תמונה של המנה. יצא טעים? צלם!</p>
                      <label className="action-btn primary glow-hover">
-                       <i className="ph ph-plus"></i> הוסף תמונה עכשיו
+                       <i className="ph ph-plus"></i> הוסף תמונה
                        <input type="file" accept="image/*" onChange={handleDishImageUpload} hidden />
                      </label>
                   </div>
@@ -368,21 +352,13 @@ function App() {
                 ) : (
                   <div className="edit-mode-header edit-section">
                     <input className="edit-input title-input" value={editedRecipe.title} onChange={e => handleEditChange('title', e.target.value)} placeholder="שם המתכון" />
-                    
                     <div className="folder-selector-wrapper">
-                      <label><i className="ph ph-folder-notch-open"></i> שייך לתיקייה:</label>
-                      <select 
-                        className="edit-input folder-select"
-                        value={editedRecipe.folderId || 'null'} 
-                        onChange={e => handleEditChange('folderId', e.target.value === 'null' ? null : e.target.value)}
-                      >
+                      <label><i className="ph ph-folder-notch-open"></i> תיקייה:</label>
+                      <select className="edit-input folder-select" value={editedRecipe.folderId || 'null'} onChange={e => handleEditChange('folderId', e.target.value === 'null' ? null : e.target.value)}>
                         <option value="null">🏠 כללי (ללא תיקייה)</option>
-                        {folders.map(f => (
-                          <option key={f._id} value={f._id}>📂 {f.name}</option>
-                        ))}
+                        {folders.map(f => ( <option key={f._id} value={f._id}>📂 {f.name}</option> ))}
                       </select>
                     </div>
-
                     <textarea className="edit-input desc-input" value={editedRecipe.description} onChange={e => handleEditChange('description', e.target.value)} placeholder="תיאור קצר" />
                   </div>
                 )}
@@ -410,13 +386,11 @@ function App() {
                   </div>
 
                   <div className="section-box glass-effect-inset">
-                    <h3><i className="ph ph-cooking-pot highlight"></i> הוראות הכנה</h3>
+                    <h3><i className="ph ph-cooking-pot highlight"></i> הוראות</h3>
                     <ol className="instructions-list">
                       {(!isEditing ? selectedRecipe.instructions : editedRecipe.instructions).map((step, i) => (
                         <li key={i} className={isEditing ? 'edit-row' : 'view-row'}>
-                          {!isEditing ? (
-                            <span className="step-text">{step}</span>
-                          ) : (
+                          {!isEditing ? ( <span className="step-text">{step}</span> ) : (
                              <>
                               <textarea value={step} onChange={e => handleInstructionChange(i, e.target.value)} className="edit-input textarea-step" />
                               <button className="icon-btn danger small" onClick={() => deleteInstruction(i)}><i className="ph ph-trash"></i></button>
@@ -434,19 +408,13 @@ function App() {
                      <i className={`ph ph-caret-${showOriginal ? 'up' : 'down'}`}></i>
                      {showOriginal ? 'הסתר סריקה מקורית' : 'הצג סריקה מקורית'}
                   </button>
-                  
-                  {showOriginal && (
-                    <div className="original-image-wrapper glass-effect fade-in">
-                      <img src={selectedRecipe.imageUrl} alt="סריקה מקורית" />
-                    </div>
-                  )}
+                  {showOriginal && ( <div className="original-image-wrapper glass-effect fade-in"><img src={selectedRecipe.imageUrl} alt="סריקה מקורית" /></div> )}
                 </div>
               </div>
             </div>
           </div>
         )}
       </main>
-
       {isMobileMenuOpen && <div className="sidebar-overlay mobile-only fade-in" onClick={() => setIsMobileMenuOpen(false)}></div>}
     </div>
   );
