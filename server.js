@@ -22,7 +22,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// שימוש במפתח ה-AI הקיים שלך (בלי אשראי)
+// שימוש במפתח ה-AI הקיים שלך
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const upload = multer({ storage: multer.memoryStorage() });
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
@@ -123,7 +123,7 @@ app.get('/api/recipes', authenticateToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// --- סריקה חכמה ללא המצאות (מודל Pro) ---
+// --- סריקה יציבה עם הנחיות קשוחות ---
 app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image' });
@@ -135,28 +135,27 @@ app.post('/api/recipes/upload', authenticateToken, upload.single('image'), async
     });
     const cloudRes = await uploadToCloud();
 
-    // שינוי קריטי 1: שימוש במודל החכם ביותר (Pro) במקום המהיר (Flash)
+    // --- התיקון: חזרה למודל היציב (Flash) אבל עם טמפרטורה 0 ---
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-pro", // מודל חכם יותר שמבין הוראות מורכבות
-      generationConfig: { temperature: 0.0 } // אפס יצירתיות
+      model: "gemini-1.5-flash", // זה המודל שעובד בטוח
+      generationConfig: { temperature: 0.0 } // 0.0 = רובוט ללא דמיון
     });
     
-    // שינוי קריטי 2: הנחיית "שרשרת מחשבה" (Chain of Thought)
+    // הנחיה "רצחנית" נגד המצאות
     const prompt = `
-      You are a strict data entry clerk. You are NOT a chef.
+      TASK: You are a dumb data entry machine. You interpret OCR text from an image.
       
-      STEP 1: Read the text in the image. Identify every single word written in Hebrew.
-      STEP 2: Identify the recipe title.
-      STEP 3: Identify the ingredients list exactly as written. Do NOT add water, salt, or pepper if they are not listed. Do NOT convert units (keep "3 spoons" as "3 spoons").
-      STEP 4: Identify instructions.
+      STRICT RULES:
+      1. TRANSCRIPTION ONLY: Write EXACTLY what you see. Do NOT add missing ingredients.
+      2. NO GUESSING: If the image says "Flour", DO NOT write "1 cup Flour". Leave amount empty.
+      3. LANGUAGE: Keep Hebrew text exactly as is.
+      4. DO NOT add "Salt", "Pepper", "Water", "Oil" if they are not explicitly written.
       
-      CRITICAL RULE: If you add an ingredient that is not in the image, you will fail the task.
-      
-      Output ONLY valid JSON:
+      Return ONLY valid JSON:
       {
         "title": "Title from image",
-        "description": "Short description from text or empty",
-        "ingredients": [{"name": "item name", "amount": "quantity", "unit": "unit type"}],
+        "description": "Description from image (or empty)",
+        "ingredients": [{"name": "exact item", "amount": "exact amount", "unit": "exact unit"}],
         "instructions": ["step 1", "step 2"]
       }
     `;
